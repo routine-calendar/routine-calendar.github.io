@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  index.html - home page of https://routine-calendar.github.io: a short description of Routine Calendar. The real work of this site is
+  /routines/create (shared routine links) and /.well-known/assetlinks.json (Android App Links verification).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Routine Calendar</title>
+    <link rel="icon" href="/assets/favicon.png" />
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <img src="/assets/icon.png" alt="" />
+        <span id="app-name">Routine Calendar</span>
+      </div>
+      <section class="card">
+        <h1 id="title">Plan and play your daily routines</h1>
+        <p id="body">
+          Routine Calendar is an Android app for scheduling routines and playing them step by step. Links to shared routines
+          on this site open the app directly.
+        </p>
+      </section>
+    </main>
+    <script>
+      // Polish texts for Polish browsers (the app's two languages are English and Polish).
+      if ((navigator.languages || [navigator.language || ""]).some((l) => String(l).toLowerCase().startsWith("pl"))) {
+        document.documentElement.lang = "pl";
+        document.title = "Kalendarz Rutyn";
+        document.getElementById("app-name").textContent = "Kalendarz Rutyn";
+        document.getElementById("title").textContent = "Planuj i odtwarzaj swoje codzienne rutyny";
+        document.getElementById("body").textContent =
+          "Kalendarz Rutyn to aplikacja na Androida do planowania rutyn i wykonywania ich krok po kroku. Linki do udostępnionych rutyn na tej stronie otwierają aplikację od razu.";
+      }
+    </script>
+  </body>
+</html>

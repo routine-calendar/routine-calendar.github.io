@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  404.html - GitHub Pages serves this for every unknown path. A shared link whose path got a trailing slash or a ".html"
+  (/routines/create/ or /routines/create.html is fine already) is sent to /routines/create with its query string kept;
+  anything else shows a short "page not found" message.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Page not found - Routine Calendar</title>
+    <link rel="icon" href="/assets/favicon.png" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script>
+      // /routines/create/ (or with several slashes) -> /routines/create, keeping ?shared=... so the routine is not lost.
+      if (/^\/routines\/create\/+$/i.test(location.pathname)) {
+        location.replace("/routines/create" + location.search + location.hash);
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Page not found</h1>
+        <p><a class="button" href="/">Routine Calendar</a></p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<!--
+  routines/create.html - served at https://routine-calendar.github.io/routines/create (GitHub Pages serves "create.html" for the
+  extensionless path). It is the same path as the app route src/app/routines/create.tsx, so a verified Android App Link opens
+  the app with the "shared" parameter; this page is only the fallback (app missing, desktop browser, link not verified yet).
+  All logic is in /assets/share.js; texts are filled in English or Polish from the browser language.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- The query string holds the shared routine: never index it, never send it to other sites as a referrer. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Shared routine - Routine Calendar</title>
+    <link rel="icon" href="/assets/favicon.png" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/share.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <!-- App identity. -->
+      <div class="brand">
+        <img src="/assets/icon.png" alt="" />
+        <span data-text="appName">Routine Calendar</span>
+      </div>
+
+      <!-- Explanation and actions. -->
+      <section class="card">
+        <p class="muted" data-text="heading">A routine was shared with you</p>
+        <p data-text="intro">Open it in Routine Calendar to add it.</p>
+        <p id="error" class="error" role="alert" hidden></p>
+        <div id="actions" class="actions" hidden>
+          <a id="open-app" class="button primary" href="#" data-text="openApp">Open in Routine Calendar</a>
+          <button id="copy-link" class="button" type="button" data-text="copyLink">Copy link</button>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <!-- Read-only preview of the routine, filled by share.js. -->
+      <section id="routine" class="card" hidden></section>
+
+      <p class="muted" data-text="howItWorks">On an Android phone with Routine Calendar installed, the link opens the app directly.</p>
+      <noscript><p class="error">JavaScript is needed to show the shared routine.</p></noscript>
+    </main>
+  </body>
+</html>
