@@ -5,11 +5,18 @@ It does two things:
 
 1. **Android App Links verification.** `/.well-known/assetlinks.json` tells Android that `https://routine-calendar.github.io` links may
    be opened directly by the app signed with the listed certificate.
-2. **Shared routine fallback page.** The app shares a routine as
+2. **Shared routine page.** The app shares a routine as
    `https://routine-calendar.github.io/routines/create?shared=<payload>` (`<payload>` is the base64url of the UTF-8 JSON of a
-   `RoutineTemplate` v1). With the app installed and verified, Android opens the Create routine screen directly and this site is
-   never contacted. Otherwise `routines/create.html` shows a read-only preview with **Open in Routine Calendar**
-   (`routinecalendar://` link) and **Copy link** (for the app's Import shared routine card).
+   `RoutineTemplate` v1). With the app installed and verified, Android opens the app directly, the app adds the routine by itself
+   and this site is never contacted. Otherwise `routines/create.html` shows a read-only preview and, on Android, **opens the app
+   automatically at once** (no choice to make) through a Chrome `intent://` URL to the `routinecalendar://` route; the app then adds
+   the routine by itself, exactly as it was shared. Only when that cannot work does the page show a fallback with the reason,
+   **Copy link** and numbered steps for the app's Import shared routine card (plus **Try opening the app again** where a retry can help):
+   - the app is not installed (Chrome comes back through the intent's `S.browser_fallback_url`, this page with `&fallback=1`),
+   - the page is still visible 2.5 s later (the browser ignored or blocked the intent),
+   - the device is not Android (desktop, iOS),
+   - the payload is longer than 100,000 characters (too long for a reliable intent; the app's paste card still accepts up to 256 KiB),
+   - the link is damaged (only the error is shown) or comes from a newer app version (update the app, then retry).
 
 There is no build step, no framework and no tracking: plain HTML, CSS and JavaScript.
 
@@ -20,7 +27,7 @@ There is no build step, no framework and no tracking: plain HTML, CSS and JavaSc
 | `.well-known/assetlinks.json` | Digital Asset Links statement: package name + SHA-256 signing certificate fingerprint(s). |
 | `.nojekyll` | Turns Jekyll off, so GitHub Pages publishes the `.well-known` folder (Jekyll skips dot folders). |
 | `routines/create.html` | Shared routine page; GitHub Pages serves it at `/routines/create` (same path as the app route). |
-| `assets/share.js` | Reads `?shared=`, decodes it like `src/features/routineTemplate/shareCodec.ts`, renders the preview with `textContent` only. English or Polish from the browser language. |
+| `assets/share.js` | Reads `?shared=`, decodes it like `src/features/routineTemplate/shareCodec.ts`, renders the preview with `textContent` only, opens the app automatically or shows the fallback. English or Polish from the browser language. |
 | `assets/style.css` | Styles, light and dark (brand color `#087F70`). |
 | `assets/icon.png`, `assets/favicon.png` | Copied from the app's `assets/images/`. |
 | `index.html` | Short home page. |
@@ -65,7 +72,7 @@ adb shell am start -a android.intent.action.VIEW -c android.intent.category.BROW
   -d "https://routine-calendar.github.io/routines/create?shared=eyJ2ZXJzaW9uIjoxLCJuYW1lIjoiVGVzdCJ9"
 ```
 
-If the state is not `verified`, the link opens this page in the browser instead; **Open in Routine Calendar** still works.
+If the state is not `verified`, the link opens this page in the browser instead, and the page opens the app automatically.
 On the phone, **Settings > Apps > Routine Calendar > Open by default** shows the link state and lets you add it manually.
 
 ## Signing certificate

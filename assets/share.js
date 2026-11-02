@@ -1,18 +1,27 @@
 /*
- * share.js - the fallback page for a shared Routine Calendar routine.
+ * share.js - the page behind a shared Routine Calendar routine link.
  *
  * A shared link looks like https://routine-calendar.github.io/routines/create?shared=<payload>. When Routine Calendar is installed and the
  * Android App Link is verified (see /.well-known/assetlinks.json), Android opens the app directly and this page never loads.
- * It loads only when the app is missing, the link was opened on a computer, or verification has not happened yet. It then:
- *   1. reads the payload from the query string (base64url of the UTF-8 JSON of a RoutineTemplate, version 1),
- *   2. decodes and shows a read-only preview (text only, never HTML from the payload),
- *   3. offers "Open in the app" (the routinecalendar:// custom-scheme link) and "Copy link" (for the app's paste import).
+ * When it does load, there is NO choice to make: on an Android phone the page opens the app AUTOMATICALLY right away, and the app adds
+ * the routine by itself, exactly as it was shared. Step by step:
+ *   1. read the payload from the query string (base64url of the UTF-8 JSON of a RoutineTemplate, version 1) and decode it,
+ *   2. show a read-only preview (text only, never HTML from the payload),
+ *   3. open the app with a Chrome intent:// URL (custom scheme routinecalendar://, package com.routinecalendar.app). Its
+ *      S.browser_fallback_url brings the browser back to this page with &fallback=1 when the app is not installed, and a timer covers
+ *      browsers that ignore intents or block the automatic open,
+ *   4. only when the app cannot be opened show the FALLBACK: why, "Copy link" (for the app's Import shared routine card) with
+ *      step-by-step instructions, and "Try opening the app again" (a tap counts as a user gesture, which some browsers require).
+ * The app is not opened automatically when the payload is too large for a direct open (AUTO_OPEN_MAX_LENGTH), on non-Android devices,
+ * or when the link is damaged; those cases go straight to the fallback (a damaged link gets no Copy link, it would not work either).
  *
  * The decoding mirrors src/features/routineTemplate/shareCodec.ts in the app (same size limit, same alphabet handling). The app
  * remains the validator: this page only previews and never stores anything.
  *
- * Docs: https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder ,
+ * Docs: https://developer.chrome.com/docs/android/intents ,
+ *       https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder ,
  *       https://developer.mozilla.org/en-US/docs/Web/API/Window/atob ,
+ *       https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event ,
  *       https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat ,
  *       https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/writeText
  */
@@ -20,14 +29,24 @@
 
 /** App URL scheme (expo.scheme in the app's app.json). */
 const APP_SCHEME = "routinecalendar";
+/** Android package of the app (expo.android.package in the app's app.json); Chrome opens only this app from the intent. */
+const APP_PACKAGE = "com.routinecalendar.app";
 /** App route that receives a shared routine (src/app/routines/create.tsx). */
 const SHARE_PATH = "routines/create";
 /** Query parameter that carries the payload. */
 const SHARE_PARAM = "shared";
-/** Largest accepted payload in characters (ROUTINE_SHARE_MAX_PAYLOAD_LENGTH in the app). */
+/** Query parameter this page adds to its own URL as the intent's browser fallback (the app is not installed). */
+const FALLBACK_PARAM = "fallback";
+/** Largest accepted payload in characters (ROUTINE_SHARE_MAX_PAYLOAD_LENGTH in the app); larger ones the app refuses too. */
 const MAX_PAYLOAD_LENGTH = 256 * 1024;
-/** How long to wait after "Open in the app" before suggesting that the app is not installed. */
-const APP_OPEN_TIMEOUT_MS = 2000;
+/**
+ * Largest payload opened automatically. An Android intent travels through a binder transaction of at most about 1 MB, and the URL is
+ * sent as UTF-16 (2 bytes per character), so a very long link can fail to open the app. Above this length the page shows the fallback
+ * directly and the app's paste import (which accepts up to MAX_PAYLOAD_LENGTH) is used instead.
+ */
+const AUTO_OPEN_MAX_LENGTH = 100 * 1000;
+/** How long to wait for the app to take over before the fallback is shown. */
+const APP_OPEN_TIMEOUT_MS = 2500;
 
 /** Page texts in English and Polish (the two app languages). */
 const TEXTS = {
@@ -35,13 +54,21 @@ const TEXTS = {
     pageTitle: "Shared routine - Routine Calendar",
     appName: "Routine Calendar",
     heading: "A routine was shared with you",
-    intro: "Open it in Routine Calendar to add it. Nothing is saved until you tap Save in the app.",
-    openApp: "Open in Routine Calendar",
+    opening: "Opening Routine Calendar. The routine is added automatically.",
+    opened: "The routine was sent to Routine Calendar. You can close this page.",
     copyLink: "Copy link",
-    copied: "Link copied. In the app, open Create routine > Import shared routine and paste it.",
+    openAgain: "Try opening the app again",
+    copied: "Link copied. Now paste it in the app (step 3 below).",
     copyFailed: "Copying is not available here. Select the address in the address bar and copy it.",
-    appDidNotOpen: "The app did not open? Install Routine Calendar on this phone, or copy the link and paste it in the app.",
-    howItWorks: "On an Android phone with Routine Calendar installed, the link opens the app directly.",
+    reasonDidNotOpen: "Routine Calendar did not open, so the routine could not be added automatically. You can still add it by hand:",
+    reasonNotInstalled: "Routine Calendar is not installed on this phone, so the routine could not be added automatically. You can still add it by hand:",
+    reasonNotAndroid: "Routine Calendar is an Android app, so the routine can't be added on this device automatically. You can still add it on your phone:",
+    reasonTooLong: "This routine is too large to open the app directly. You can still add it by hand:",
+    howToTitle: "How to add it",
+    howTo1: "Install Routine Calendar on your Android phone.",
+    howTo2: "Tap Copy link above (on a computer, send the link to your phone first).",
+    howTo3: "In the app, open Create routine, expand Import shared routine, paste the link and tap Import.",
+    howTo4: "Check the routine and tap Save.",
     schedule: "Schedule",
     prerequisites: "You will need",
     steps: "Steps",
@@ -66,19 +93,27 @@ const TEXTS = {
     errorMissing: "This link does not contain a routine. Ask the sender to share it again.",
     errorTooLarge: "This shared routine is too large to open.",
     errorMalformed: "This link is damaged or incomplete. Ask the sender to share it again.",
-    errorVersion: "This routine was shared from a newer version of Routine Calendar. Update the app to open it.",
+    errorVersion: "This routine was shared from a newer version of Routine Calendar. Update the app, then try again:",
   },
   pl: {
     pageTitle: "Udostępniona rutyna - Kalendarz Rutyn",
     appName: "Kalendarz Rutyn",
     heading: "Ktoś udostępnił Ci rutynę",
-    intro: "Otwórz ją w aplikacji Kalendarz Rutyn, aby ją dodać. Nic nie zostanie zapisane, dopóki nie dotkniesz Zapisz w aplikacji.",
-    openApp: "Otwórz w Kalendarzu Rutyn",
+    opening: "Otwieranie Kalendarza Rutyn. Rutyna zostanie dodana automatycznie.",
+    opened: "Rutyna została przekazana do Kalendarza Rutyn. Możesz zamknąć tę stronę.",
     copyLink: "Kopiuj link",
-    copied: "Link skopiowany. W aplikacji otwórz Stwórz rutynę > Importuj udostępnioną rutynę i wklej go.",
+    openAgain: "Spróbuj ponownie otworzyć aplikację",
+    copied: "Link skopiowany. Teraz wklej go w aplikacji (krok 3 poniżej).",
     copyFailed: "Kopiowanie nie jest tu dostępne. Zaznacz adres na pasku adresu i skopiuj go.",
-    appDidNotOpen: "Aplikacja się nie otworzyła? Zainstaluj Kalendarz Rutyn na tym telefonie albo skopiuj link i wklej go w aplikacji.",
-    howItWorks: "Na telefonie z Androidem i zainstalowanym Kalendarzem Rutyn link otwiera aplikację od razu.",
+    reasonDidNotOpen: "Kalendarz Rutyn się nie otworzył, więc rutyny nie udało się dodać automatycznie. Nadal możesz dodać ją ręcznie:",
+    reasonNotInstalled: "Kalendarz Rutyn nie jest zainstalowany na tym telefonie, więc rutyny nie udało się dodać automatycznie. Nadal możesz dodać ją ręcznie:",
+    reasonNotAndroid: "Kalendarz Rutyn to aplikacja na Androida, więc na tym urządzeniu rutyny nie da się dodać automatycznie. Nadal możesz dodać ją na telefonie:",
+    reasonTooLong: "Ta rutyna jest zbyt duża, aby otworzyć ją bezpośrednio w aplikacji. Nadal możesz dodać ją ręcznie:",
+    howToTitle: "Jak ją dodać",
+    howTo1: "Zainstaluj Kalendarz Rutyn na telefonie z Androidem.",
+    howTo2: "Dotknij Kopiuj link powyżej (na komputerze najpierw wyślij link na telefon).",
+    howTo3: "W aplikacji otwórz Stwórz rutynę, rozwiń Importuj udostępnioną rutynę, wklej link i dotknij Importuj.",
+    howTo4: "Sprawdź rutynę i dotknij Zapisz.",
     schedule: "Harmonogram",
     prerequisites: "Będzie potrzebne",
     steps: "Kroki",
@@ -103,7 +138,7 @@ const TEXTS = {
     errorMissing: "Ten link nie zawiera rutyny. Poproś nadawcę o ponowne udostępnienie.",
     errorTooLarge: "Ta udostępniona rutyna jest zbyt duża, aby ją otworzyć.",
     errorMalformed: "Ten link jest uszkodzony lub niepełny. Poproś nadawcę o ponowne udostępnienie.",
-    errorVersion: "Ta rutyna pochodzi z nowszej wersji Kalendarza Rutyn. Zaktualizuj aplikację, aby ją otworzyć.",
+    errorVersion: "Ta rutyna pochodzi z nowszej wersji Kalendarza Rutyn. Zaktualizuj aplikację i spróbuj ponownie:",
   },
 };
 
@@ -364,7 +399,7 @@ function renderRoutine(template) {
 }
 
 /**
- * Shows a message in the status line.
+ * Shows a message in the fallback's status line (copy result).
  * @param {string} text the message
  */
 function setStatus(text) {
@@ -372,28 +407,95 @@ function setStatus(text) {
 }
 
 /**
- * Wires the "Open in the app" link and the "Copy link" button.
+ * Tells whether the page runs on an Android device (the only platform of the app).
+ * @returns {boolean}
+ */
+function isAndroid() {
+  return /Android/i.test(navigator.userAgent);
+}
+
+/**
+ * Tells whether this load is the intent's browser fallback (Chrome came back because the app is not installed).
+ * @returns {boolean}
+ */
+function isIntentFallback() {
+  return new RegExp(`[?&]${FALLBACK_PARAM}=1(?:&|#|$)`).test(window.location.search);
+}
+
+/**
+ * This page's URL without the fallback marker: the link that is copied and that the intent falls back to.
+ * @returns {string}
+ */
+function shareUrl() {
+  // Drop "&fallback=1" (or "?fallback=1&") so a copied link is the original one.
+  const search = window.location.search.replace(new RegExp(`([?&])${FALLBACK_PARAM}=1(&|$)`), (match, lead, tail) => (tail ? lead : "")).replace(/[?&]$/, "");
+  return `${window.location.origin}${window.location.pathname}${search}`;
+}
+
+/**
+ * Builds the Chrome intent URL that opens the app's Create route with the payload, or comes back here with &fallback=1.
+ * @param {string} code the canonical payload
+ * @returns {string}
+ */
+function intentUrl(code) {
+  // Where Chrome goes when no installed app handles the intent: this page, marked so it does not try again.
+  const base = shareUrl();
+  const fallback = `${base}${base.includes("?") ? "&" : "?"}${FALLBACK_PARAM}=1`;
+  return (
+    `intent://${SHARE_PATH}?${SHARE_PARAM}=${encodeURIComponent(code)}` +
+    `#Intent;scheme=${APP_SCHEME};package=${APP_PACKAGE};S.browser_fallback_url=${encodeURIComponent(fallback)};end`
+  );
+}
+
+/**
+ * Shows the fallback card with its reason; Copy link, the instructions and "Try opening the app again" are optional.
+ * @param {string} reason the localized reason text
+ * @param {{copy: boolean, retryCode: string|null}} options `copy`: show Copy link and the instructions; `retryCode`: payload for a retry button, or null
+ */
+function showFallback(reason, options) {
+  document.getElementById("opening").hidden = true;
+  const card = document.getElementById("fallback");
+  document.getElementById("reason").textContent = reason;
+  // Copy link copies the original share URL (without the fallback marker).
+  if (options.copy) {
+    document.getElementById("copy-link").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(shareUrl());
+        setStatus(T.copied);
+      } catch {
+        setStatus(T.copyFailed);
+      }
+    };
+  }
+  document.getElementById("copy-link").hidden = !options.copy;
+  document.getElementById("howto").hidden = !options.copy;
+  // A tap on the retry button is a user gesture, which browsers that blocked the automatic open accept.
+  const retry = document.getElementById("open-app");
+  if (options.retryCode !== null) retry.href = intentUrl(options.retryCode);
+  retry.hidden = options.retryCode === null;
+  document.getElementById("actions").hidden = !options.copy && options.retryCode === null;
+  card.hidden = false;
+}
+
+/**
+ * Opens the app automatically and shows the fallback when it does not take over in time.
  * @param {string} code the canonical payload
  */
-function setUpActions(code) {
-  const open = document.getElementById("open-app");
-  // The custom-scheme deep link the app has always understood (no App Link verification needed).
-  open.href = `${APP_SCHEME}://${SHARE_PATH}?${SHARE_PARAM}=${encodeURIComponent(code)}`;
-  open.addEventListener("click", () => {
-    // If the page is still visible after a moment, the app most likely is not installed.
-    window.setTimeout(() => {
-      if (document.visibilityState === "visible") setStatus(T.appDidNotOpen);
-    }, APP_OPEN_TIMEOUT_MS);
+function openAppAutomatically(code) {
+  document.getElementById("opening").hidden = false;
+  // Set once the page is hidden: the app (or the system chooser) came to the front.
+  let left = false;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") left = true;
+    // Back in the browser after the app opened: say so instead of offering anything.
+    else if (left && document.getElementById("fallback").hidden) document.getElementById("opening-text").textContent = T.opened;
   });
-  document.getElementById("copy-link").addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setStatus(T.copied);
-    } catch {
-      setStatus(T.copyFailed);
-    }
-  });
-  document.getElementById("actions").hidden = false;
+  // Still visible after the timeout: the browser ignored or blocked the intent.
+  window.setTimeout(() => {
+    if (!left && document.visibilityState === "visible") showFallback(T.reasonDidNotOpen, { copy: true, retryCode: code });
+  }, APP_OPEN_TIMEOUT_MS);
+  // Hand over to the app now (replace: Back from the app does not land on a page that would open it again).
+  window.location.replace(intentUrl(code));
 }
 
 /** Fills the static texts (elements with data-text="key"). */
@@ -406,22 +508,28 @@ function applyTexts() {
   }
 }
 
-/** Entry point: translate, decode, then show the preview or the error. */
+/** Entry point: translate, decode, show the preview, then open the app or show the fallback. */
 function main() {
   applyTexts();
   const raw = readRawPayload();
   const result = decodePayload(raw);
   if (!result.ok) {
     const key = { missing: "errorMissing", "too-large": "errorTooLarge", malformed: "errorMalformed", version: "errorVersion" }[result.reason];
-    const error = document.getElementById("error");
-    error.textContent = T[key];
-    error.hidden = false;
-    // A newer-version routine can still be opened by an updated app, so the actions stay available for it.
-    if (result.reason === "version" && raw !== null) setUpActions(normalizeCode(raw));
+    // A newer-version routine still works in an updated app: offer the copy path and a retry; anything else is unusable.
+    const usable = result.reason === "version" && raw !== null;
+    showFallback(T[key], { copy: usable, retryCode: usable && isAndroid() ? normalizeCode(raw) : null });
     return;
   }
   renderRoutine(result.template);
-  setUpActions(normalizeCode(raw));
+  const code = normalizeCode(raw);
+  // Not a phone the app runs on: explain and offer the copy path.
+  if (!isAndroid()) return showFallback(T.reasonNotAndroid, { copy: true, retryCode: null });
+  // Chrome came back through the intent's fallback URL: the app is not installed.
+  if (isIntentFallback()) return showFallback(T.reasonNotInstalled, { copy: true, retryCode: code });
+  // Too long for a reliable direct open: the paste import still accepts it.
+  if (code.length > AUTO_OPEN_MAX_LENGTH) return showFallback(T.reasonTooLong, { copy: true, retryCode: null });
+  // The normal case: open the app right away.
+  openAppAutomatically(code);
 }
 
 main();

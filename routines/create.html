@@ -2,7 +2,10 @@
 <!--
   routines/create.html - served at https://routine-calendar.github.io/routines/create (GitHub Pages serves "create.html" for the
   extensionless path). It is the same path as the app route src/app/routines/create.tsx, so a verified Android App Link opens
-  the app with the "shared" parameter; this page is only the fallback (app missing, desktop browser, link not verified yet).
+  the app with the "shared" parameter and this page never loads. When it does load (link not verified yet, app missing, desktop),
+  it opens the app AUTOMATICALLY at once (no choice to make); the app then adds the routine by itself. Only when that cannot work
+  (the app did not open, not an Android phone, the routine is too large for a direct open, a damaged link) does it show the
+  fallback: the reason, "Copy link" and step-by-step instructions for the app's Import shared routine card.
   All logic is in /assets/share.js; texts are filled in English or Polish from the browser language.
 -->
 <html lang="en">
@@ -25,23 +28,36 @@
         <span data-text="appName">Routine Calendar</span>
       </div>
 
-      <!-- Explanation and actions. -->
-      <section class="card">
+      <!-- Shown while the app is being opened automatically (and after it opened, when the user comes back to the browser). -->
+      <section id="opening" class="card" hidden>
         <p class="muted" data-text="heading">A routine was shared with you</p>
-        <p data-text="intro">Open it in Routine Calendar to add it.</p>
-        <p id="error" class="error" role="alert" hidden></p>
+        <p id="opening-text" role="status" aria-live="polite" data-text="opening">Opening Routine Calendar. The routine is added automatically.</p>
+      </section>
+
+      <!-- Fallback: why the app was not opened, Copy link and how to add the routine by hand. -->
+      <section id="fallback" class="card" hidden>
+        <p class="muted" data-text="heading">A routine was shared with you</p>
+        <p id="reason" role="alert"></p>
         <div id="actions" class="actions" hidden>
-          <a id="open-app" class="button primary" href="#" data-text="openApp">Open in Routine Calendar</a>
-          <button id="copy-link" class="button" type="button" data-text="copyLink">Copy link</button>
+          <button id="copy-link" class="button primary" type="button" data-text="copyLink">Copy link</button>
+          <a id="open-app" class="button" href="#" hidden data-text="openAgain">Try opening the app again</a>
         </div>
         <p id="status" class="status" role="status" aria-live="polite"></p>
+        <div id="howto" hidden>
+          <h2 data-text="howToTitle">How to add it</h2>
+          <ol>
+            <li data-text="howTo1">Install Routine Calendar on your Android phone.</li>
+            <li data-text="howTo2">Tap Copy link above (on a computer, send the link to your phone first).</li>
+            <li data-text="howTo3">In the app, open Create routine, expand Import shared routine, paste the link and tap Import.</li>
+            <li data-text="howTo4">Check the routine and tap Save.</li>
+          </ol>
+        </div>
       </section>
 
       <!-- Read-only preview of the routine, filled by share.js. -->
       <section id="routine" class="card" hidden></section>
 
-      <p class="muted" data-text="howItWorks">On an Android phone with Routine Calendar installed, the link opens the app directly.</p>
-      <noscript><p class="error">JavaScript is needed to show the shared routine.</p></noscript>
+      <noscript><p class="error">JavaScript is needed to open the shared routine.</p></noscript>
     </main>
   </body>
 </html>
